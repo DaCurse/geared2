@@ -69,9 +69,10 @@ export class World {
   private calculateAllocated(machineType: string): number {
     let allocated = 0;
     for (const module of this.modules) {
+      if (!module.enabled) continue; // Skip disabled modules
       for (const slot of module.machineSlots) {
-        if (slot.machine.type === machineType && slot.enabled) {
-          allocated++;
+        if (slot.machineType === machineType) {
+          allocated += slot.machineCount; // Count all machines in this slot
         }
       }
     }
@@ -119,12 +120,16 @@ export class World {
    */
   tick(): void {
     for (const module of this.modules) {
-      module.tick(this.tickRate, this.globalStorage);
+      module.tick(this.tickRate, this.globalStorage, {
+        machines: MachineDefs,
+        recipes: Recipes,
+      });
     }
   }
 
   /**
    * Get total resources across all machine buffers and global storage.
+   * With the new slot-based system, we only track global storage.
    */
   getTotalResources(): Record<string, number> {
     const totals: Record<string, number> = {};
@@ -133,19 +138,7 @@ export class World {
     for (const [resource, amount] of Object.entries(
       this.globalStorage.contents
     )) {
-      totals[resource] = (totals[resource] || 0) + amount;
-    }
-
-    // Add machine buffers (input + output)
-    for (const module of this.modules) {
-      for (const machine of module.machines) {
-        for (const [resource, amount] of Object.entries(machine.inputBuffer)) {
-          totals[resource] = (totals[resource] || 0) + amount;
-        }
-        for (const [resource, amount] of Object.entries(machine.outputBuffer)) {
-          totals[resource] = (totals[resource] || 0) + amount;
-        }
-      }
+      totals[resource] = (totals[resource] || 0) + (amount as number);
     }
 
     return totals;

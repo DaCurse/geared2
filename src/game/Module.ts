@@ -1,28 +1,31 @@
 /**
- * Module.ts
- * Container for machines and links - represents a production template.
- * A module defines a complete production process (e.g., mine -> smelt -> store).
- * Each slot can be independently scaled (e.g., 5 miners feeding 3 furnaces).
+ * Module.ts - Clean Refactor
+ *
+ * A module contains slots that process resources.
+ * - Each slot has a machine type, recipe, and machine count
+ * - Slots have input/output buffers based on their recipe
+ * - Links connect slot outputs to slot inputs (or global storage)
+ * - All slot inputs/outputs must be connected (validation)
  */
 
-import type { LinkData, LinkEndpoint } from './Link';
+import type { LinkData } from './Link';
 import { Link } from './Link';
 import type { MachineDefinition } from './Machine';
-import { Machine } from './Machine';
 import type { RecipeDefinition } from './Recipe';
+import { Storage } from './Storage';
 
 export interface MachineSlot {
-  slotId: string; // unique ID for this slot/step
-  machineType: string; // type of machine (e.g., 'miner', 'furnace')
-  recipe: string | null; // recipe ID this slot uses
-  scale: number; // how many machines for this specific step
+  slotId: string;
+  machineType: string;
+  recipe: string | null;
+  machineCount: number;
 }
 
 export interface MachineSlotData {
   slotId: string;
   machineType: string;
   recipe: string | null;
-  scale: number;
+  machineCount: number;
 }
 
 export interface ModuleData {
@@ -33,12 +36,19 @@ export interface ModuleData {
   enabled: boolean;
 }
 
+interface SlotBuffer {
+  input: Record<string, number>;
+  output: Record<string, number>;
+  capacity: number;
+}
+
 export class Module {
   id: string;
   name: string;
-  machineSlots: MachineSlot[]; // Template slots (one per step)
+  machineSlots: MachineSlot[];
   links: Link[];
   enabled: boolean;
+  private slotBuffers: Map<string, SlotBuffer>;
 
   constructor(id: string, name: string) {
     this.id = id;
@@ -46,95 +56,71 @@ export class Module {
     this.machineSlots = [];
     this.links = [];
     this.enabled = true;
+    this.slotBuffers = new Map();
   }
 
-  /**
-   * Add a machine slot to the template.
-   */
   addMachineSlot(
     slotId: string,
     machineType: string,
     recipe: string | null,
-    scale: number = 1
+    machineCount: number = 1
   ): void {
-    this.machineSlots.push({ slotId, machineType, recipe, scale });
+    this.machineSlots.push({ slotId, machineType, recipe, machineCount });
   }
 
-  /**
-   * Add a machine (convenience method).
-   */
-  addMachine(machine: Machine): void {
-    const recipeId = machine.currentRecipe?.id || null;
-    this.addMachineSlot(machine.id, machine.type, recipeId, 1);
-  }
-
-  /**
-   * Add a link to this module.
-   */
   addLink(link: Link): void {
     this.links.push(link);
   }
 
-  /**
-   * Generate all machine instances based on current slot scales.
-   */
-  private generateMachines(defs: {
-    machines: Record<string, MachineDefinition>;
-    recipes: Record<string, RecipeDefinition>;
-  }): Machine[] {
-    const machines: Machine[] = [];
-
-    for (const slot of this.machineSlots) {
-      const machineDef = defs.machines[slot.machineType];
-      const recipe = slot.recipe ? defs.recipes[slot.recipe] : null;
-
-      if (!machineDef) {
-        console.warn(`Machine type ${slot.machineType} not found`);
-        continue;
-      }
-
-      // Create 'scale' number of machines for this slot
-      for (let i = 0; i < slot.scale; i++) {
-        const machineId = `${slot.slotId}_${i}`;
-        const machine = new Machine(machineId, machineDef, recipe);
-        machines.push(machine);
-      }
-    }
-
-    return machines;
-  }
-
-  /**
-   * Get all machines (convenience property - regenerates on each call).
-   */
-  get machines(): Machine[] {
-    // This is a placeholder - in real usage, machines should be cached
-    // and regenerated only when slots change
-    return [];
-  }
-
-  /**
-   * Set the scale for a specific slot.
-   */
-  setSlotScale(slotId: string, scale: number): void {
+  setSlotMachineCount(slotId: string, count: number): void {
     const slot = this.machineSlots.find(s => s.slotId === slotId);
     if (slot) {
-      slot.scale = Math.max(0, scale);
+      slot.machineCount = Math.max(0, count);
     }
   }
 
-  /**
-   * Get the scale for a specific slot.
-   */
-  getSlotScale(slotId: string): number {
+  getSlotMachineCount(slotId: string): number {
     const slot = this.machineSlots.find(s => s.slotId === slotId);
-    return slot?.scale || 0;
+    return slot?.machineCount || 0;
   }
 
-  /**
-   * Validate that all machine inputs/outputs are properly linked.
-   */
-  validateLinks(): {
+  getSlotBuffers(
+    slotId: string
+  ): {
+    input: Record<string, number>;
+    output: Record<string, number>;
+    capacity: number;
+  } | null {
+    const buffer = this.slotBuffers.get(slotId);
+    if (!buffer) return null;
+    return {
+      input: { ...buffer.input },
+      output: { ...buffer.output },
+      capacity: buffer.capacity,
+    };
+  }
+
+  private getSlotInputs(
+    slot: MachineSlot,
+    recipes: Record<string, RecipeDefinition>
+  ): string[] {
+    if (!slot.recipe) return [];
+    const recipe = recipes[slot.recipe];
+    if (!recipe) return [];
+    return Object.keys(recipe.inputRates);
+  }
+
+  private getSlotOutputs(
+    slot: MachineSlot,
+    recipes: Record<string, RecipeDefinition>
+  ): string[] {
+    if (!slot.recipe) return [];
+    const recipe = recipes[slot.recipe];
+    if (!recipe) return [];
+    return Object.keys(recipe.outputRates);
+  }
+
+  validateLinks(recipes?: Record<string, RecipeDefinition>): {
     valid: boolean;
     issues: string[];
     warnings: string[];
@@ -142,23 +128,46 @@ export class Module {
     const issues: string[] = [];
     const warnings: string[] = [];
 
-    // Build set of all valid endpoint IDs
-    const validEndpoints = new Set<string>();
+    if (!recipes) {
+      warnings.push('No recipes provided for validation');
+      return { valid: true, issues, warnings };
+    }
+
     for (const slot of this.machineSlots) {
-      // Each slot can have multiple machines (based on scale)
-      for (let i = 0; i < slot.scale; i++) {
-        validEndpoints.add(`${slot.slotId}_${i}`);
+      const inputs = this.getSlotInputs(slot, recipes);
+      const outputs = this.getSlotOutputs(slot, recipes);
+
+      for (const resource of inputs) {
+        const hasLink = this.links.some(
+          l => l.toId === slot.slotId && l.resource === resource
+        );
+        if (!hasLink) {
+          issues.push(
+            `Slot ${slot.slotId}: Missing input link for ${resource}`
+          );
+        }
+      }
+
+      for (const resource of outputs) {
+        const hasLink = this.links.some(
+          l => l.fromId === slot.slotId && l.resource === resource
+        );
+        if (!hasLink) {
+          issues.push(
+            `Slot ${slot.slotId}: Missing output link for ${resource}`
+          );
+        }
       }
     }
-    validEndpoints.add('global_storage'); // Always valid
 
-    // Check all links point to valid endpoints
+    const validIds = new Set(this.machineSlots.map(s => s.slotId));
+    validIds.add('global_storage');
+
     for (const link of this.links) {
-      // Links can use slot IDs or machine IDs
-      if (!validEndpoints.has(link.fromId) && !this.isSlotId(link.fromId)) {
+      if (!validIds.has(link.fromId)) {
         issues.push(`Link ${link.id}: Invalid source '${link.fromId}'`);
       }
-      if (!validEndpoints.has(link.toId) && !this.isSlotId(link.toId)) {
+      if (!validIds.has(link.toId)) {
         issues.push(`Link ${link.id}: Invalid target '${link.toId}'`);
       }
     }
@@ -170,71 +179,177 @@ export class Module {
     };
   }
 
-  /**
-   * Check if an ID is a slot ID.
-   */
-  private isSlotId(id: string): boolean {
-    return this.machineSlots.some(s => s.slotId === id);
+  isValid(recipes?: Record<string, RecipeDefinition>): boolean {
+    return this.validateLinks(recipes).valid;
   }
 
-  /**
-   * Check if the module is valid and can run.
-   */
-  isValid(): boolean {
-    return this.validateLinks().valid;
+  private updateSlotBuffers(defs: {
+    machines: Record<string, MachineDefinition>;
+  }): void {
+    const activeSlots = new Set<string>();
+
+    for (const slot of this.machineSlots) {
+      activeSlots.add(slot.slotId);
+
+      const machineDef = defs.machines[slot.machineType];
+      if (!machineDef || !machineDef.bufferSize) continue;
+
+      const capacity = machineDef.bufferSize * slot.machineCount;
+
+      if (!this.slotBuffers.has(slot.slotId)) {
+        this.slotBuffers.set(slot.slotId, {
+          input: {},
+          output: {},
+          capacity,
+        });
+      } else {
+        this.slotBuffers.get(slot.slotId)!.capacity = capacity;
+      }
+    }
+
+    for (const slotId of Array.from(this.slotBuffers.keys())) {
+      if (!activeSlots.has(slotId)) {
+        this.slotBuffers.delete(slotId);
+      }
+    }
   }
 
-  /**
-   * Process one tick of simulation.
-   */
   tick(
     dt: number,
-    globalStorage?: import('./Storage').Storage,
+    globalStorage?: Storage,
     defs?: {
       machines: Record<string, MachineDefinition>;
       recipes: Record<string, RecipeDefinition>;
     }
   ): void {
-    // Don't run if module is disabled or invalid
-    if (!this.enabled || !this.isValid()) {
-      return;
-    }
+    if (!this.enabled) return;
 
     if (!defs) {
-      console.warn('Module tick called without machine/recipe definitions');
+      console.warn('Module tick called without definitions');
       return;
     }
 
-    // Generate machines for this tick
-    const machines = this.generateMachines(defs);
-
-    // Build lookup map
-    const worldObjects = new Map<string, LinkEndpoint>();
-
-    // Add all machines
-    for (const machine of machines) {
-      worldObjects.set(machine.id, machine);
+    if (!this.isValid(defs.recipes)) {
+      console.warn(`Module ${this.id} has invalid links, skipping tick`);
+      return;
     }
 
-    // Add global storage if provided
-    if (globalStorage) {
-      worldObjects.set('global_storage', globalStorage);
+    this.updateSlotBuffers(defs);
+
+    // Phase 1: Production
+    for (const slot of this.machineSlots) {
+      if (slot.machineCount === 0 || !slot.recipe) continue;
+
+      const recipe = defs.recipes[slot.recipe];
+      if (!recipe) continue;
+
+      const buffer = this.slotBuffers.get(slot.slotId);
+      if (!buffer) continue;
+
+      const scaledInputRates: Record<string, number> = {};
+      const scaledOutputRates: Record<string, number> = {};
+
+      for (const [resource, rate] of Object.entries(recipe.inputRates)) {
+        scaledInputRates[resource] = rate * slot.machineCount;
+      }
+      for (const [resource, rate] of Object.entries(recipe.outputRates)) {
+        scaledOutputRates[resource] = rate * slot.machineCount;
+      }
+
+      let canProduce = true;
+      for (const [resource, rate] of Object.entries(scaledInputRates)) {
+        const required = rate * dt;
+        const available = buffer.input[resource] || 0;
+        if (available < required) {
+          canProduce = false;
+          break;
+        }
+      }
+
+      if (canProduce) {
+        for (const [resource, rate] of Object.entries(scaledOutputRates)) {
+          const toProduce = rate * dt;
+          const current = buffer.output[resource] || 0;
+          if (current + toProduce > buffer.capacity) {
+            canProduce = false;
+            break;
+          }
+        }
+      }
+
+      if (!canProduce) continue;
+
+      for (const [resource, rate] of Object.entries(scaledInputRates)) {
+        const toConsume = rate * dt;
+        buffer.input[resource] = (buffer.input[resource] || 0) - toConsume;
+        if (buffer.input[resource] <= 0) {
+          delete buffer.input[resource];
+        }
+      }
+
+      for (const [resource, rate] of Object.entries(scaledOutputRates)) {
+        const toProduce = rate * dt;
+        buffer.output[resource] = (buffer.output[resource] || 0) + toProduce;
+      }
     }
 
-    // Phase 1: Transfer resources via links
+    // Phase 2: Transfer
     for (const link of this.links) {
-      link.transfer(worldObjects, dt);
-    }
+      const maxTransfer = link.pipeDefinition.throughput * dt;
 
-    // Phase 2: Process machines
-    for (const machine of machines) {
-      machine.tick(dt);
+      let sourceAmount = 0;
+      let sourceBuffer: SlotBuffer | Storage | null = null;
+
+      if (link.fromId === 'global_storage' && globalStorage) {
+        sourceAmount = globalStorage.get(link.resource);
+        sourceBuffer = globalStorage;
+      } else {
+        const buffer = this.slotBuffers.get(link.fromId);
+        if (buffer) {
+          sourceAmount = buffer.output[link.resource] || 0;
+          sourceBuffer = buffer;
+        }
+      }
+
+      let targetSpace = Infinity;
+      let targetBuffer: SlotBuffer | Storage | null = null;
+
+      if (link.toId === 'global_storage' && globalStorage) {
+        targetSpace = globalStorage.getFreeSpace(link.resource);
+        targetBuffer = globalStorage;
+      } else {
+        const buffer = this.slotBuffers.get(link.toId);
+        if (buffer) {
+          const current = buffer.input[link.resource] || 0;
+          targetSpace = buffer.capacity - current;
+          targetBuffer = buffer;
+        }
+      }
+
+      if (!sourceBuffer || !targetBuffer) continue;
+
+      const toTransfer = Math.min(sourceAmount, targetSpace, maxTransfer);
+      if (toTransfer <= 0) continue;
+
+      if (sourceBuffer instanceof Storage) {
+        sourceBuffer.remove(link.resource, toTransfer);
+      } else {
+        sourceBuffer.output[link.resource] =
+          (sourceBuffer.output[link.resource] || 0) - toTransfer;
+        if (sourceBuffer.output[link.resource] <= 0) {
+          delete sourceBuffer.output[link.resource];
+        }
+      }
+
+      if (targetBuffer instanceof Storage) {
+        targetBuffer.add(link.resource, toTransfer);
+      } else {
+        targetBuffer.input[link.resource] =
+          (targetBuffer.input[link.resource] || 0) + toTransfer;
+      }
     }
   }
 
-  /**
-   * Serialize to JSON.
-   */
   serialize(): ModuleData {
     return {
       id: this.id,
@@ -243,16 +358,13 @@ export class Module {
         slotId: slot.slotId,
         machineType: slot.machineType,
         recipe: slot.recipe,
-        scale: slot.scale,
+        machineCount: slot.machineCount,
       })),
       links: this.links.map(l => l.serialize()),
       enabled: this.enabled,
     };
   }
 
-  /**
-   * Deserialize from saved data.
-   */
   static deserialize(
     data: ModuleData,
     defs: {
@@ -263,17 +375,15 @@ export class Module {
   ): Module {
     const module = new Module(data.id, data.name);
 
-    // Deserialize slots
     for (const slotData of data.machineSlots || []) {
       module.addMachineSlot(
         slotData.slotId,
         slotData.machineType,
         slotData.recipe,
-        slotData.scale
+        slotData.machineCount
       );
     }
 
-    // Deserialize links
     for (const linkData of data.links || []) {
       const pipeDef = defs.pipes[linkData.pipeType];
       if (pipeDef) {
@@ -282,7 +392,6 @@ export class Module {
       }
     }
 
-    // Set enabled state
     module.enabled = data.enabled !== undefined ? data.enabled : true;
 
     return module;
