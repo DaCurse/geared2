@@ -8,6 +8,7 @@
  * - All slot inputs/outputs must be connected (validation)
  */
 
+import type { Deposit } from './Deposit';
 import type { LinkData } from './Link';
 import { Link } from './Link';
 import type { MachineDefinition } from './Machine';
@@ -19,6 +20,7 @@ export interface MachineSlot {
   machineType: string;
   recipe: string | null;
   machineCount: number;
+  depositId?: string; // Optional: for miners to extract from specific deposits
 }
 
 export interface ModuleData {
@@ -56,9 +58,16 @@ export class Module {
     slotId: string,
     machineType: string,
     recipe: string | null,
-    machineCount: number = 1
+    machineCount: number = 1,
+    depositId?: string
   ): void {
-    this.machineSlots.push({ slotId, machineType, recipe, machineCount });
+    this.machineSlots.push({
+      slotId,
+      machineType,
+      recipe,
+      machineCount,
+      depositId,
+    });
   }
 
   addLink(link: Link): void {
@@ -69,6 +78,13 @@ export class Module {
     const slot = this.machineSlots.find(s => s.slotId === slotId);
     if (slot) {
       slot.machineCount = Math.max(0, count);
+    }
+  }
+
+  setSlotDeposit(slotId: string, depositId: string | undefined): void {
+    const slot = this.machineSlots.find(s => s.slotId === slotId);
+    if (slot) {
+      slot.depositId = depositId;
     }
   }
 
@@ -211,7 +227,8 @@ export class Module {
     defs?: {
       machines: Record<string, MachineDefinition>;
       recipes: Record<string, RecipeDefinition>;
-    }
+    },
+    deposits?: Record<string, Deposit>
   ): void {
     if (!this.enabled) return;
 
@@ -247,6 +264,31 @@ export class Module {
         scaledOutputRates[resource] = rate * slot.machineCount;
       }
 
+      // Apply deposit yield multiplier for mining operations (recipes with no inputs)
+      let yieldMultiplier = 1.0;
+      if (
+        Object.keys(recipe.inputRates).length === 0 &&
+        slot.depositId &&
+        deposits
+      ) {
+        const deposit = deposits[slot.depositId];
+        if (deposit && deposit.discovered && !deposit.isDepleted()) {
+          yieldMultiplier = deposit.yieldRate;
+        } else if (deposit && deposit.isDepleted()) {
+          // Deposit depleted, can't produce
+          continue;
+        } else if (!deposit) {
+          // No deposit assigned or invalid deposit
+          continue;
+        }
+      } else if (
+        Object.keys(recipe.inputRates).length === 0 &&
+        !slot.depositId
+      ) {
+        // Mining recipe but no deposit assigned
+        continue;
+      }
+
       let canProduce = true;
       for (const [resource, rate] of Object.entries(scaledInputRates)) {
         const required = rate * dt;
@@ -259,7 +301,7 @@ export class Module {
 
       if (canProduce) {
         for (const [resource, rate] of Object.entries(scaledOutputRates)) {
-          const toProduce = rate * dt;
+          const toProduce = rate * dt * yieldMultiplier;
           const current = buffer.output[resource] || 0;
           if (current + toProduce > buffer.capacity) {
             canProduce = false;
@@ -279,8 +321,20 @@ export class Module {
       }
 
       for (const [resource, rate] of Object.entries(scaledOutputRates)) {
-        const toProduce = rate * dt;
+        const toProduce = rate * dt * yieldMultiplier;
         buffer.output[resource] = (buffer.output[resource] || 0) + toProduce;
+
+        // Extract from deposit if this is a mining operation
+        if (
+          Object.keys(recipe.inputRates).length === 0 &&
+          slot.depositId &&
+          deposits
+        ) {
+          const deposit = deposits[slot.depositId];
+          if (deposit) {
+            deposit.extract(toProduce);
+          }
+        }
       }
     }
 

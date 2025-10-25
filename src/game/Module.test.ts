@@ -3,6 +3,7 @@
  * Test file for module simulation logic
  */
 
+import { Deposit } from './Deposit';
 import { MachineDefs, Pipes, Recipes } from './GameDefs';
 import { Link } from './Link';
 import { Module } from './Module';
@@ -10,13 +11,34 @@ import { Storage } from './Storage';
 
 console.log('=== Running Module Tests ===\n');
 
-// Test 1: Simple iron production chain
+// Test 1: Simple iron production chain with deposits
 console.log('Test 1: Iron production (miners -> furnaces -> storage)');
+
+// Create deposits
+const ironDeposit = new Deposit('iron_deposit', 'iron_ore', 1000, 1.0);
+const coalDeposit = new Deposit('coal_deposit', 'coal', 500, 1.0);
+const deposits = {
+  iron_deposit: ironDeposit,
+  coal_deposit: coalDeposit,
+};
+
 const module1 = new Module('test1', 'Iron Production');
 
-// Add slots
-module1.addMachineSlot('iron_miners', 'miner', Recipes.mine_iron.id, 5);
-module1.addMachineSlot('coal_miners', 'miner', Recipes.mine_coal.id, 2);
+// Add slots with deposit assignments
+module1.addMachineSlot(
+  'iron_miners',
+  'miner',
+  Recipes.mine_iron.id,
+  5,
+  'iron_deposit'
+);
+module1.addMachineSlot(
+  'coal_miners',
+  'miner',
+  Recipes.mine_coal.id,
+  2,
+  'coal_deposit'
+);
 module1.addMachineSlot('furnaces', 'furnace', Recipes.smelt_iron.id, 3);
 
 // Add links
@@ -52,15 +74,32 @@ const globalStorage = new Storage();
 // Run simulation for 10 ticks
 console.log('Running 10 ticks at 1 second each...\n');
 for (let i = 0; i < 10; i++) {
-  module1.tick(1.0, globalStorage, {
-    machines: MachineDefs,
-    recipes: Recipes,
-  });
+  module1.tick(
+    1.0,
+    globalStorage,
+    {
+      machines: MachineDefs,
+      recipes: Recipes,
+    },
+    deposits
+  );
 }
 
 console.log('Results after 10 ticks:');
 console.log('Global storage:', globalStorage.contents);
-console.log('Expected: ~10 iron_ingot (may be less due to buffer buildup)');
+console.log(
+  'Deposit remaining - Iron:',
+  ironDeposit.remainingAmount.toFixed(0),
+  '/',
+  ironDeposit.totalAmount
+);
+console.log(
+  'Deposit remaining - Coal:',
+  coalDeposit.remainingAmount.toFixed(0),
+  '/',
+  coalDeposit.totalAmount
+);
+console.log('Expected: ~30 iron_ingot, deposits should be depleting');
 console.log('\n');
 
 // Test 2: Validation

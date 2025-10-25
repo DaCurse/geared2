@@ -4,6 +4,8 @@
  * Contains all modules, global storage, and machine inventory.
  */
 
+import type { DepositData } from './Deposit';
+import { Deposit } from './Deposit';
 import { MachineDefs, Pipes, Recipes } from './GameDefs';
 import type { ModuleData } from './Module';
 import { Module } from './Module';
@@ -21,6 +23,7 @@ export interface MachineInventory {
 export interface WorldData {
   modules: ModuleData[];
   globalStorage: StorageData;
+  deposits: DepositData[];
   tickRate: number;
   machineInventory: Record<string, number>; // machineType -> total count
 }
@@ -28,14 +31,32 @@ export interface WorldData {
 export class World {
   modules: Module[];
   globalStorage: Storage;
+  deposits: Record<string, Deposit>;
   tickRate: number; // seconds per tick
   machineInventory: MachineInventory; // track owned and allocated machines
 
   constructor(tickRate: number = 1.0) {
     this.modules = [];
     this.globalStorage = new Storage();
+    this.deposits = {};
     this.tickRate = tickRate;
     this.machineInventory = {};
+  }
+
+  /**
+   * Add a deposit to the world.
+   */
+  addDeposit(deposit: Deposit): void {
+    this.deposits[deposit.id] = deposit;
+  }
+
+  /**
+   * Get all deposits of a specific resource type.
+   */
+  getDepositsByResource(resourceType: string): Deposit[] {
+    return Object.values(this.deposits).filter(
+      d => d.resourceType === resourceType && d.discovered
+    );
   }
 
   /**
@@ -120,10 +141,15 @@ export class World {
    */
   tick(): void {
     for (const module of this.modules) {
-      module.tick(this.tickRate, this.globalStorage, {
-        machines: MachineDefs,
-        recipes: Recipes,
-      });
+      module.tick(
+        this.tickRate,
+        this.globalStorage,
+        {
+          machines: MachineDefs,
+          recipes: Recipes,
+        },
+        this.deposits
+      );
     }
   }
 
@@ -145,7 +171,7 @@ export class World {
   }
 
   /**
-   * Serialize to JSON-compatible object.
+   * Serialize world state for saving.
    */
   serialize(): WorldData {
     // Convert machineInventory to simple Record<string, number> for serialization
@@ -158,6 +184,7 @@ export class World {
     return {
       modules: this.modules.map(m => m.serialize()),
       globalStorage: this.globalStorage.serialize(),
+      deposits: Object.values(this.deposits).map(d => d.serialize()),
       tickRate: this.tickRate,
       machineInventory: machineInventoryCounts,
     };
@@ -171,6 +198,13 @@ export class World {
 
     // Deserialize global storage
     world.globalStorage = Storage.deserialize(data.globalStorage);
+
+    // Deserialize deposits
+    if (data.deposits) {
+      for (const depositData of data.deposits) {
+        world.deposits[depositData.id] = Deposit.deserialize(depositData);
+      }
+    }
 
     // Deserialize machine inventory
     if (data.machineInventory) {

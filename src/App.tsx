@@ -1,21 +1,60 @@
 import { useEffect, useState } from 'react';
 import './App.css';
+import { DepositDisplay } from './components/DepositDisplay';
 import { ModuleDisplay } from './components/ModuleDisplay';
 import { ResourceDisplay } from './components/ResourceDisplay';
-import { Link, Module, Pipes, Recipes, Resources, World } from './game';
+import {
+  Deposit,
+  Link,
+  Module,
+  Pipes,
+  Recipes,
+  Resources,
+  World,
+} from './game';
 
 function App() {
   const [world] = useState(() => {
     // Create a simple demo world
     const w = new World(1.0);
+
+    // Create resource deposits
+    const ironDeposit1 = new Deposit(
+      'iron_deposit_1',
+      Resources.iron_ore.id,
+      50000,
+      1.0
+    );
+    const coalDeposit1 = new Deposit(
+      'coal_deposit_1',
+      Resources.coal.id,
+      30000,
+      1.0
+    );
+
+    w.addDeposit(ironDeposit1);
+    w.addDeposit(coalDeposit1);
+
     const module = new Module('demo', 'Iron Production Module');
 
     // Add machine slots (templates) with per-slot scaling
     // Step 1: Mine iron ore (2 miners - balanced for 2 furnaces)
-    module.addMachineSlot('iron_miners', 'miner', Recipes.mine_iron.id, 2);
+    module.addMachineSlot(
+      'iron_miners',
+      'miner',
+      Recipes.mine_iron.id,
+      2,
+      'iron_deposit_1'
+    );
 
     // Step 2: Mine coal (1 miner - balanced for 2 furnaces)
-    module.addMachineSlot('coal_miners', 'miner', Recipes.mine_coal.id, 1);
+    module.addMachineSlot(
+      'coal_miners',
+      'miner',
+      Recipes.mine_coal.id,
+      1,
+      'coal_deposit_1'
+    );
 
     // Step 3: Smelt iron (2 furnaces)
     module.addMachineSlot('furnaces', 'furnace', Recipes.smelt_iron.id, 2);
@@ -77,6 +116,8 @@ function App() {
       <p>Tick: {tick}</p>
 
       <ResourceDisplay resources={globalResources} />
+
+      <DepositDisplay deposits={world.deposits} />
 
       <h2>Modules</h2>
       {world.modules.map(module => (
