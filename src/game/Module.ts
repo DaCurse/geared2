@@ -21,17 +21,10 @@ export interface MachineSlot {
   machineCount: number;
 }
 
-export interface MachineSlotData {
-  slotId: string;
-  machineType: string;
-  recipe: string | null;
-  machineCount: number;
-}
-
 export interface ModuleData {
   id: string;
   name: string;
-  machineSlots: MachineSlotData[];
+  machineSlots: MachineSlot[];
   links: LinkData[];
   enabled: boolean;
 }
@@ -84,9 +77,7 @@ export class Module {
     return slot?.machineCount || 0;
   }
 
-  getSlotBuffers(
-    slotId: string
-  ): {
+  getSlotBuffers(slotId: string): {
     input: Record<string, number>;
     output: Record<string, number>;
     capacity: number;

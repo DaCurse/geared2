@@ -24,16 +24,16 @@ export { Link } from './Link';
 export type { LinkData, LinkEndpoint } from './Link';
 
 export { Module } from './Module';
-export type { MachineSlot, MachineSlotData, ModuleData } from './Module';
+export type { MachineSlot, ModuleData } from './Module';
 
 export { World } from './World';
 export type { WorldData } from './World';
 
 // Game definitions
 export {
-  initializeGameDefs,
   MachineDefs,
   Pipes,
   Recipes,
   Resources,
+  initializeGameDefs,
 } from './GameDefs';
