@@ -30,7 +30,7 @@ export { Deposit } from './Deposit';
 export type { DepositData, DepositDefinition } from './Deposit';
 
 export { World } from './World';
-export type { WorldData } from './World';
+export type { MachineInventory, WorldData } from './World';
 
 // Game definitions
 export {
@@ -40,3 +40,11 @@ export {
   Recipes,
   Resources,
 } from './GameDefs';
+
+// Emoji mappings
+export {
+  getMachineEmoji,
+  getResourceEmoji,
+  MachineEmojis,
+  ResourceEmojis,
+} from './EmojiMap';

@@ -1,11 +1,9 @@
 /**
- * Module.ts - Clean Refactor
+ * Module.ts
  *
  * A module contains slots that process resources.
- * - Each slot has a machine type, recipe, and machine count
- * - Slots have input/output buffers based on their recipe
- * - Links connect slot outputs to slot inputs (or global storage)
- * - All slot inputs/outputs must be connected (validation)
+ * Slots have input/output buffers based on their recipe.
+ * Links connect slot outputs to slot inputs or global storage.
  */
 
 import type { Deposit } from './Deposit';
@@ -20,7 +18,7 @@ export interface MachineSlot {
   machineType: string;
   recipe: string | null;
   machineCount: number;
-  depositId?: string; // Optional: for miners to extract from specific deposits
+  depositId?: string;
 }
 
 export interface ModuleData {
@@ -223,7 +221,6 @@ export class Module {
 
   tick(
     dt: number,
-    globalStorage?: Storage,
     defs?: {
       machines: Record<string, MachineDefinition>;
       recipes: Record<string, RecipeDefinition>;
@@ -243,8 +240,22 @@ export class Module {
     }
 
     this.updateSlotBuffers(defs);
+    this.runProductionPhase(dt, defs, deposits);
+  }
 
-    // Phase 1: Production
+  runTransfers(dt: number, globalStorage?: Storage): void {
+    if (!this.enabled) return;
+    this.runTransferPhase(dt, globalStorage);
+  }
+
+  private runProductionPhase(
+    dt: number,
+    defs: {
+      machines: Record<string, MachineDefinition>;
+      recipes: Record<string, RecipeDefinition>;
+    },
+    deposits?: Record<string, Deposit>
+  ): void {
     for (const slot of this.machineSlots) {
       if (slot.machineCount === 0 || !slot.recipe) continue;
 
@@ -264,7 +275,6 @@ export class Module {
         scaledOutputRates[resource] = rate * slot.machineCount;
       }
 
-      // Apply deposit yield multiplier for mining operations (recipes with no inputs)
       let yieldMultiplier = 1.0;
       if (
         Object.keys(recipe.inputRates).length === 0 &&
@@ -275,17 +285,14 @@ export class Module {
         if (deposit && deposit.discovered && !deposit.isDepleted()) {
           yieldMultiplier = deposit.yieldRate;
         } else if (deposit && deposit.isDepleted()) {
-          // Deposit depleted, can't produce
           continue;
         } else if (!deposit) {
-          // No deposit assigned or invalid deposit
           continue;
         }
       } else if (
         Object.keys(recipe.inputRates).length === 0 &&
         !slot.depositId
       ) {
-        // Mining recipe but no deposit assigned
         continue;
       }
 
@@ -324,7 +331,6 @@ export class Module {
         const toProduce = rate * dt * yieldMultiplier;
         buffer.output[resource] = (buffer.output[resource] || 0) + toProduce;
 
-        // Extract from deposit if this is a mining operation
         if (
           Object.keys(recipe.inputRates).length === 0 &&
           slot.depositId &&
@@ -337,8 +343,9 @@ export class Module {
         }
       }
     }
+  }
 
-    // Phase 2: Transfer
+  private runTransferPhase(dt: number, globalStorage?: Storage): void {
     for (const link of this.links) {
       const maxTransfer = link.pipeDefinition.throughput * dt;
 

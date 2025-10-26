@@ -1,37 +1,109 @@
+import { useState } from 'react';
 import type { Module } from '../game';
 import { Recipes } from '../game';
+import type { MachineInventory } from '../game/World';
 import { SlotDisplay } from './SlotDisplay';
 
 interface ModuleDisplayProps {
   module: Module;
+  machineInventory: MachineInventory;
   onUpdate: () => void;
+  onRefreshInventory: () => void;
 }
 
-export function ModuleDisplay({ module, onUpdate }: ModuleDisplayProps) {
+export function ModuleDisplay({
+  module,
+  machineInventory,
+  onUpdate,
+  onRefreshInventory,
+}: ModuleDisplayProps) {
   const validation = module.validateLinks(Recipes);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState(module.name);
+
+  const handleToggleEnabled = () => {
+    if (!module.enabled) {
+      // Resuming - refresh inventory to apply changes
+      onRefreshInventory();
+    }
+    module.enabled = !module.enabled;
+    onUpdate();
+  };
+
+  const handleNameClick = () => {
+    setIsEditing(true);
+    setEditName(module.name);
+  };
+
+  const handleNameSubmit = () => {
+    if (editName.trim()) {
+      module.name = editName.trim();
+      onUpdate();
+    }
+    setIsEditing(false);
+  };
+
+  const handleNameKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleNameSubmit();
+    } else if (e.key === 'Escape') {
+      setIsEditing(false);
+      setEditName(module.name);
+    }
+  };
 
   return (
     <div
       style={{
-        marginTop: '20px',
-        padding: '10px',
+        marginTop: '10px',
+        padding: '8px',
         border: `2px solid ${validation.valid ? '#4CAF50' : '#FF9800'}`,
+        minWidth: '350px',
+        maxWidth: '450px',
+        flex: '0 0 auto',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-        <h3 style={{ margin: 0 }}>
-          {module.name}{' '}
-          {validation.valid ? (
-            <span style={{ color: '#4CAF50' }}>✓ Valid</span>
-          ) : (
-            <span style={{ color: '#FF9800' }}>⚠ Issues</span>
-          )}
-        </h3>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          justifyContent: 'space-between',
+        }}
+      >
+        {isEditing ? (
+          <input
+            type="text"
+            value={editName}
+            onChange={e => setEditName(e.target.value)}
+            onBlur={handleNameSubmit}
+            onKeyDown={handleNameKeyDown}
+            autoFocus
+            style={{
+              fontSize: '16px',
+              fontWeight: 'bold',
+              padding: '2px 4px',
+              border: '1px solid #2196F3',
+              borderRadius: '3px',
+              flex: 1,
+            }}
+          />
+        ) : (
+          <h3
+            style={{ margin: 0, cursor: 'pointer', flex: 1 }}
+            onClick={handleNameClick}
+            title="Click to rename"
+          >
+            {module.name}{' '}
+            {validation.valid ? (
+              <span style={{ color: '#4CAF50' }}>✓</span>
+            ) : (
+              <span style={{ color: '#FF9800' }}>⚠</span>
+            )}
+          </h3>
+        )}
         <button
-          onClick={() => {
-            module.enabled = !module.enabled;
-            onUpdate();
-          }}
+          onClick={handleToggleEnabled}
           style={{
             padding: '5px 15px',
             cursor: 'pointer',
@@ -42,10 +114,12 @@ export function ModuleDisplay({ module, onUpdate }: ModuleDisplayProps) {
       </div>
 
       {!module.enabled && (
-        <div style={{ color: '#999', marginTop: '5px' }}>Module is paused</div>
+        <div style={{ color: '#FF9800', marginTop: '5px', fontSize: '11px' }}>
+          ⚠ Module paused - adjust machine allocations below
+        </div>
       )}
 
-      <h4 style={{ marginTop: '15px' }}>Slots</h4>
+      <h4 style={{ marginTop: '15px' }}>⚙️ Slots</h4>
       <div>
         {module.machineSlots.map((slot, index) => (
           <SlotDisplay
@@ -53,7 +127,10 @@ export function ModuleDisplay({ module, onUpdate }: ModuleDisplayProps) {
             slot={slot}
             index={index}
             module={module}
+            moduleEnabled={module.enabled}
+            machineInventory={machineInventory}
             onUpdate={onUpdate}
+            onRefreshInventory={onRefreshInventory}
           />
         ))}
       </div>

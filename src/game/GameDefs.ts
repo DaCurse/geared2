@@ -31,13 +31,13 @@ export const Recipes: Record<string, RecipeDefinition> = {
   smelt_iron: {
     id: 'smelt_iron',
     name: 'Smelt Iron',
-    inputRates: { iron_ore: 1, coal: 0.5 },
+    inputRates: { iron_ore: 1, coal: 1 },
     outputRates: { iron_ingot: 1 },
   },
   smelt_copper: {
     id: 'smelt_copper',
     name: 'Smelt Copper',
-    inputRates: { copper_ore: 1, coal: 0.5 },
+    inputRates: { copper_ore: 1, coal: 1 },
     outputRates: { copper_ingot: 1 },
   },
   smelt_steel: {

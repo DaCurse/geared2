@@ -32,8 +32,8 @@ export class World {
   modules: Module[];
   globalStorage: Storage;
   deposits: Record<string, Deposit>;
-  tickRate: number; // seconds per tick
-  machineInventory: MachineInventory; // track owned and allocated machines
+  tickRate: number;
+  machineInventory: MachineInventory;
 
   constructor(tickRate: number = 1.0) {
     this.modules = [];
@@ -43,25 +43,16 @@ export class World {
     this.machineInventory = {};
   }
 
-  /**
-   * Add a deposit to the world.
-   */
   addDeposit(deposit: Deposit): void {
     this.deposits[deposit.id] = deposit;
   }
 
-  /**
-   * Get all deposits of a specific resource type.
-   */
   getDepositsByResource(resourceType: string): Deposit[] {
     return Object.values(this.deposits).filter(
       d => d.resourceType === resourceType && d.discovered
     );
   }
 
-  /**
-   * Add machines to inventory.
-   */
   addMachinesToInventory(machineType: string, count: number): void {
     if (!this.machineInventory[machineType]) {
       this.machineInventory[machineType] = {
@@ -73,10 +64,6 @@ export class World {
     this.machineInventory[machineType].total += count;
     this.updateMachineAvailability(machineType);
   }
-
-  /**
-   * Update available count based on total and allocated.
-   */
   private updateMachineAvailability(machineType: string): void {
     const inv = this.machineInventory[machineType];
     if (inv) {
@@ -90,21 +77,16 @@ export class World {
   private calculateAllocated(machineType: string): number {
     let allocated = 0;
     for (const module of this.modules) {
-      if (!module.enabled) continue; // Skip disabled modules
       for (const slot of module.machineSlots) {
         if (slot.machineType === machineType) {
-          allocated += slot.machineCount; // Count all machines in this slot
+          allocated += slot.machineCount;
         }
       }
     }
     return allocated;
   }
 
-  /**
-   * Refresh all machine inventory counts based on actual module allocations.
-   */
   refreshMachineInventory(): void {
-    // Reset all allocated counts
     for (const machineType in this.machineInventory) {
       this.machineInventory[machineType].allocated =
         this.calculateAllocated(machineType);
@@ -112,38 +94,23 @@ export class World {
     }
   }
 
-  /**
-   * Get machine inventory for a specific type.
-   */
   getMachineInventory(
     machineType: string
   ): MachineInventory[string] | undefined {
     return this.machineInventory[machineType];
   }
 
-  /**
-   * Add a module to the world.
-   */
   addModule(module: Module): void {
     this.modules.push(module);
   }
 
-  /**
-   * Get a module by ID.
-   */
   getModule(id: string): Module | undefined {
     return this.modules.find(m => m.id === id);
   }
-
-  /**
-   * Process one tick of simulation.
-   * Ticks all modules with the current tick rate and provides global storage.
-   */
   tick(): void {
     for (const module of this.modules) {
       module.tick(
         this.tickRate,
-        this.globalStorage,
         {
           machines: MachineDefs,
           recipes: Recipes,
@@ -151,12 +118,15 @@ export class World {
         this.deposits
       );
     }
+
+    for (const module of this.modules) {
+      module.runTransfers(this.tickRate, this.globalStorage);
+    }
+    for (const module of this.modules) {
+      module.runTransfers(this.tickRate, this.globalStorage);
+    }
   }
 
-  /**
-   * Get total resources across all machine buffers and global storage.
-   * With the new slot-based system, we only track global storage.
-   */
   getTotalResources(): Record<string, number> {
     const totals: Record<string, number> = {};
 

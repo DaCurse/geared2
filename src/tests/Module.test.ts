@@ -4,11 +4,11 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { Deposit } from './Deposit';
-import { MachineDefs, Pipes, Recipes } from './GameDefs';
-import { Link } from './Link';
-import { Module } from './Module';
-import { Storage } from './Storage';
+import { Deposit } from '../game/Deposit';
+import { MachineDefs, Pipes, Recipes } from '../game/GameDefs';
+import { Link } from '../game/Link';
+import { Module } from '../game/Module';
+import { Storage } from '../game/Storage';
 
 describe('Module', () => {
   describe('Simple single-machine production', () => {
@@ -33,6 +33,7 @@ describe('Module', () => {
       // Run 10 ticks
       for (let i = 0; i < 10; i++) {
         module.tick(1.0, { machines: MachineDefs, recipes: Recipes }, deposits);
+        module.runTransfers(1.0, globalStorage);
         module.runTransfers(1.0, globalStorage);
       }
 
@@ -88,9 +89,10 @@ describe('Module', () => {
 
       const globalStorage = new Storage();
 
-      // Run 11 ticks (tick 1 = miners produce, tick 2-11 = furnaces produce)
+      // Run 11 ticks to account for warm-up (first tick fills input buffers)
       for (let i = 0; i < 11; i++) {
         module.tick(1.0, { machines: MachineDefs, recipes: Recipes }, deposits);
+        module.runTransfers(1.0, globalStorage);
         module.runTransfers(1.0, globalStorage);
       }
 
@@ -181,10 +183,8 @@ describe('Module', () => {
 
       const globalStorage = new Storage();
 
-      // Simulate World.tick() behavior: production then transfers
-      // Run 11 ticks (tick 1 = miners produce, tick 2-11 = furnaces produce)
+      // Run 11 ticks to account for warm-up
       for (let i = 0; i < 11; i++) {
-        // Production phase
         coalModule.tick(
           1.0,
           { machines: MachineDefs, recipes: Recipes },
@@ -196,7 +196,6 @@ describe('Module', () => {
           deposits
         );
 
-        // Transfer phase (twice for multi-hop)
         coalModule.runTransfers(1.0, globalStorage);
         copperModule.runTransfers(1.0, globalStorage);
         coalModule.runTransfers(1.0, globalStorage);
@@ -251,6 +250,7 @@ describe('Module', () => {
       // Run 3 ticks (5 miners * 3 ticks = 15, but only 10 available)
       for (let i = 0; i < 3; i++) {
         module.tick(1.0, { machines: MachineDefs, recipes: Recipes }, deposits);
+        module.runTransfers(1.0, globalStorage);
         module.runTransfers(1.0, globalStorage);
       }
 
